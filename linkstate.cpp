@@ -18,7 +18,7 @@
 #include <queue>
 
 #define MYPORT "4950"
-#define MAXDATASIZE 4000 // max number of bytes we can get at once 
+#define MAXDATASIZE 900 // max number of bytes we can get at once 
 #define MANAGERPORT "8000"
 #define MAXNUMNODES 20
 
@@ -173,10 +173,16 @@ void * recvMsg(void * param)
             		continue;
         	}
 
+        	int reuse_val = 1;
+			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse_val, sizeof(int)) == -1) {
+			    perror("setsockopt");
+			    exit(1);
+			}        	
+
         	if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
             		close(sockfd);
-            		perror("listener: bind");
-            		continue;
+            		perror("recMsg listener: bind");
+            		printf("bind failed with port: %d",port);
         	}
 
         	break;
@@ -480,10 +486,16 @@ void * recvUDP(void * param)
             		perror("listener: socket");
             		continue;
         	}
+        	int reuse_val = 1;
+			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse_val, sizeof(int)) == -1) {
+			    perror("setsockopt");
+			    exit(1);
+			}        
 
         	if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
             		close(sockfd);
-            		perror("listener: bind");
+            		perror("lrecvUDO listener: bind");
+            		printf("bind failed with port: %d",port);
             		continue;
         	}
 

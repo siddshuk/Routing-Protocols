@@ -19,7 +19,7 @@
 
 #define MYPORT "4950"
 #define MANAGERPORT "8000"
-#define MAXDATASIZE 4000 // max number of bytes we can get at once 
+#define MAXDATASIZE 900 // max number of bytes we can get at once 
 #define MAXNUMNODES 20
 
 using namespace std;

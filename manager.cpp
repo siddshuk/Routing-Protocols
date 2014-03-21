@@ -20,7 +20,7 @@
 
 #define BACKLOG 20	 // how many pending connections queue will hold
 
-#define MAXDATASIZE 4000 // max number of bytes we can get at once
+#define MAXDATASIZE 900 // max number of bytes we can get at once
 
 #define MAXNUMNODES 20 //max number of nodes that can connect at once
 
