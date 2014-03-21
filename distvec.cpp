@@ -19,8 +19,10 @@
 
 #define MYPORT "4950"
 #define MANAGERPORT "8000"
-#define MAXDATASIZE 900 // max number of bytes we can get at once 
+#define MAXDATASIZE 4000 // max number of bytes we can get at once 
+#define MAX_MESSAGE_SIZE 900
 #define MAXNUMNODES 20
+
 
 using namespace std;
 
@@ -53,7 +55,7 @@ typedef struct message_data
         int source;
         int destination;
         short hops_taken[MAXNUMNODES];
-        char msg[MAXDATASIZE];
+        char msg[MAX_MESSAGE_SIZE];
 } message_data;
 
 queue<message_data> mData;
