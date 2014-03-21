@@ -15,6 +15,7 @@
 #include <sstream>
 #include <time.h>
 #include <limits>
+#include <queue>
 
 #define MYPORT "4950"
 #define MANAGERPORT "8000"
@@ -54,8 +55,8 @@ typedef struct message_data
         char msg[MAXDATASIZE];
 } message_data;
 
-message_data mData;
-message_data mData_inc;		
+queue<message_data> mData;
+queue<message_data> mData_inc;		
 
 void restart_timer()
 {
@@ -75,9 +76,9 @@ void *get_in_addr(struct sockaddr *sa)
 void * sendMsg(void * param)
 {
 	sleep(2);
-	if(mData_inc.source == -1) 
+	if(mData_inc.empty()) 
 		return NULL;
-	map<int, vector<int> >::const_iterator nextNode = forwarding_tbl.find(mData_inc.destination);
+	map<int, vector<int> >::const_iterator nextNode = forwarding_tbl.find(mData_inc.front().destination);
 	if((nextNode != forwarding_tbl.end()) && ((nextNode->second)[1] != 0))
 	{
 		map<int, string>::const_iterator ip_it = ip_address_nodes.find((nextNode->second)[0]);
@@ -118,8 +119,10 @@ void * sendMsg(void * param)
     			}
 	 		
 			char buf[MAXDATASIZE];
-			memcpy(buf, &mData_inc, sizeof(message_data));
-    			if ((numbytes = sendto(sockfd, buf, MAXDATASIZE, 0,
+			memcpy(buf, &mData_inc.front(), sizeof(message_data));
+    			printf("SEND to %d\n", mData_inc.front().destination);
+			mData_inc.pop();
+			if ((numbytes = sendto(sockfd, buf, MAXDATASIZE, 0,
              			p->ai_addr, p->ai_addrlen)) == -1) {
         			perror("talker: sendto");
         			exit(1);
@@ -202,8 +205,11 @@ void * recvMsg(void * param)
     		printf("listener: packet is %d bytes long\n", numbytes);
     		//buf[numbytes] = '\0';
     		//printf("listener: packet contains \"%s\"\n", buf);
-		memcpy(&mData_inc, buf, sizeof(message_data));
-		printf("MESSAGE RECEIVED: %s\n", mData_inc.msg);
+		message_data msg_recv;
+		memcpy(&msg_recv, buf, sizeof(message_data));
+		printf("MESSAGE RECEIVED: %s\n", msg_recv.msg);
+		mData_inc.push(msg_recv);
+
 		pthread_t sendThread;
 		pthread_create(&sendThread, NULL, sendMsg, NULL);
 			
@@ -233,24 +239,31 @@ void * checkConvergence(void * param)
 				printf("%d %d %d\n", it_map->first, (it_map->second)[0], (it_map->second)[1]);
 			}
 			
-			mData_inc.source = mData.source;
-			mData_inc.destination = mData.destination;
-			strcpy(mData_inc.msg, mData.msg);
-
-			mData.source = -1;
-			mData.destination = -1;
-			strcpy(mData.msg, "");
 			pthread_t recvThread;
 			pthread_create(&recvThread, NULL, recvMsg, NULL);
 
-			pthread_t sendThread;
-			pthread_create(&sendThread, NULL, sendMsg, NULL);
-			//pthread_join(sendThread, NULL);
-			//sendMsg(NULL);
+			while(!mData.empty())
+			{
+				//mData_inc.source = mData.front().source;
+				//mData_inc.destination = mData.front().destination;
+				//strcpy(mData_inc.msg, mData.front().msg);
+				mData_inc.push(mData.front());
 
+				//mData.source = -1;
+				//mData.destination = -1;
+				//strcpy(mData.msg, "");
+				//printf("SENDING MSG FROM %d to %d\n", mData_inc.front().source, mData_inc.front().destination);	
+				mData.pop();		
+	
+				pthread_t sendThread;
+				pthread_create(&sendThread, NULL, sendMsg, NULL);
+				//pthread_join(sendThread, NULL);
+				//sendMsg(NULL);
+				sleep(2);
+			}
 			while(converged)
 			{
-
+				//spin
 			}
 		}
 	}	
@@ -515,11 +528,15 @@ void * communicateWithManager(void * param)
 			}
 			else if(msg_flag == 0)
 			{
-				memcpy(&mData, buf, sizeof(message_data));
-				printf("MESSAGE SOURCE: %d\n", mData.source);
-				printf("MESSAGE DESTINATION: %d\n", mData.destination);
-				printf("MESSAGE PAYLOAD: %s\n ", mData.msg);
-				msg_flag = 1;
+				message_data msg_recv;
+				memcpy(&msg_recv, buf, sizeof(message_data));
+				printf("MESSAGE SOURCE: %d\n", msg_recv.source);
+				printf("MESSAGE DESTINATION: %d\n", msg_recv.destination);
+				printf("MESSAGE PAYLOAD: %s\n ", msg_recv.msg);
+				if(msg_recv.source == -1)
+					msg_flag = 1;
+				else
+					mData.push(msg_recv);
 			}
 			else
 			{	

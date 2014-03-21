@@ -456,21 +456,25 @@ int main(int argc, char *argv[])
 			//perror("Error sending virtual id");
 
 		sleep(1);
-		int msg_flag = 0;
+		//int msg_flag = 0;
 		char msg_buf[MAXDATASIZE];
 		for(int i = 0; i<100; i++)
 		{
 			if(mData[i].source == virtual_id)
 			{
-				msg_flag = 1;
+				//msg_flag = 1;
 				memcpy(msg_buf, &(mData[i]), sizeof(message_data));
 				//send virtual id to node
 				if(send(new_fd, msg_buf, MAXDATASIZE, 0) != -1)
-                			printf("SENDING MESSAGE\n");
+                		{
+					printf("SENDING MESSAGE\n");
+					sleep(1);
+				}
+				bzero(msg_buf, MAXDATASIZE);
 			}
 		}
-		if(!msg_flag)
-		{
+		//if(!msg_flag)
+		//{
 			message_data empty_msg;
 			empty_msg.source = -1;
 			empty_msg.destination = -1;
@@ -479,7 +483,7 @@ int main(int argc, char *argv[])
 			memcpy(msg_buf, &empty_msg, sizeof(message_data));		
 			if(send(new_fd, msg_buf, MAXDATASIZE, 0) != -1)
                			printf("SENDING EMPTY MESSAGE\n");
-		}
+		//}
 
 		//send neighbor info to node
 		map<int, int>::const_iterator sock_it;
