@@ -241,6 +241,7 @@ void * checkConvergence(void * param)
 			
 			pthread_t recvThread;
 			pthread_create(&recvThread, NULL, recvMsg, NULL);
+			sleep(2);
 
 			while(!mData.empty())
 			{
