@@ -45,6 +45,7 @@ typedef struct message_data
 {
 	int source;
 	int destination;
+	short hops_taken[MAXNUMNODES];
 	char msg[MAXDATASIZE];
 } message_data;
 
@@ -198,9 +199,9 @@ void parseMessageFile(char * fileName)
 		//printf("LINE SIZE = %d\n", len);
 		strncpy(mData[i].msg, line+startPoint, len-startPoint);
 
-		printf("MESSAGE source = %d\n", mData[i].source);
-	 	printf("MESSAGE destination = %d\n", mData[i].destination);
-		printf("MESSAGE data = %s\n", mData[i].msg);
+		//printf("MESSAGE source = %d\n", mData[i].source);
+	 	//printf("MESSAGE destination = %d\n", mData[i].destination);
+		//printf("MESSAGE data = %s\n", mData[i].msg);
 
 		i++;	
 	}
@@ -234,17 +235,17 @@ void * informNode(void * param)
 			map<int, bool>::const_iterator conn_it = nodes_connected.find(neighbor_id);	
 			if(conn_it != nodes_connected.end())
 			{
-				printf("OH\n");
+				//printf("OH\n");
 				if(conn_it->second == true)
 				{
-					printf("YEA\n");
+					//printf("YEA\n");
 					map<int, string>::const_iterator search_ip = ip_address_nodes.find(neighbor_id);
 					if(search_ip != ip_address_nodes.end())
 					{
 						//printf("IP = %s\n", search_ip->second);
 						//nData.neighbor_ip_address[neighbor_id] = new char[sizeof(search_ip->second)];
 						strcpy(nData.neighbor_ip_address[neighbor_id], (search_ip->second).c_str());  
-						printf("YO");
+						//printf("YO");
 					}
 				}
 			}
@@ -412,7 +413,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	printf("server: waiting for connections...\n");
+	//printf("server: waiting for connections...\n");
 	
 	pthread_t stdinThread;
 	pthread_create(&stdinThread, NULL, stdinHandler, NULL);
@@ -428,7 +429,7 @@ int main(int argc, char *argv[])
 		inet_ntop(their_addr.ss_family,
 			get_in_addr((struct sockaddr *)&their_addr),
 			s, sizeof s);
-		printf("server: got connection from %s\n", s);
+		//printf("server: got connection from %s\n", s);
 		
 		//assign lowest id as virtual id for the node
 		int virtual_id = nodes_all.front();
@@ -451,9 +452,10 @@ int main(int argc, char *argv[])
 		char * virtual_id_str = (char *) ss.str().c_str();
  		
 		//send virtual id to node
-		if(send(new_fd, virtual_id_str, MAXDATASIZE, 0) != -1)
-                	printf("SENDING VIRTUAL ID\n");
-			//perror("Error sending virtual id");
+		if(!send(new_fd, virtual_id_str, MAXDATASIZE, 0) != -1)
+            perror("Error sending virtual id");
+                	//printf("SENDING VIRTUAL ID\n");
+			
 
 		sleep(1);
 		//int msg_flag = 0;
@@ -465,11 +467,11 @@ int main(int argc, char *argv[])
 				//msg_flag = 1;
 				memcpy(msg_buf, &(mData[i]), sizeof(message_data));
 				//send virtual id to node
-				if(send(new_fd, msg_buf, MAXDATASIZE, 0) != -1)
-                		{
-					printf("SENDING MESSAGE\n");
-					sleep(1);
-				}
+				if(!send(new_fd, msg_buf, MAXDATASIZE, 0) != -1){sleep(1);}
+                		
+					//printf("SENDING MESSAGE\n");
+					
+				
 				bzero(msg_buf, MAXDATASIZE);
 			}
 		}
@@ -478,11 +480,12 @@ int main(int argc, char *argv[])
 			message_data empty_msg;
 			empty_msg.source = -1;
 			empty_msg.destination = -1;
+			empty_msg.hops_taken[0] = -1;
 			strcpy(empty_msg.msg, "");	
 		
 			memcpy(msg_buf, &empty_msg, sizeof(message_data));		
-			if(send(new_fd, msg_buf, MAXDATASIZE, 0) != -1)
-               			printf("SENDING EMPTY MESSAGE\n");
+			if(send(new_fd, msg_buf, MAXDATASIZE, 0) != -1){}
+               //			printf("SENDING EMPTY MESSAGE\n");
 		//}
 
 		//send neighbor info to node

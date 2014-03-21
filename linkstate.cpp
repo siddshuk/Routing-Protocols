@@ -18,7 +18,8 @@
 #include <queue>
 
 #define MYPORT "4950"
-#define MAXDATASIZE 900 // max number of bytes we can get at once 
+#define MAXDATASIZE 4000 // max number of bytes we can get at once 
+#define MAX_MESSAGE_SIZE 900
 #define MANAGERPORT "8000"
 #define MAXNUMNODES 20
 
@@ -53,7 +54,8 @@ typedef struct message_data
 {
         int source;
         int destination;
-        char msg[MAXDATASIZE];
+        short hops_taken[MAXNUMNODES];
+        char msg[MAX_MESSAGE_SIZE];
 } message_data;
 
 queue<message_data> mData;
@@ -74,6 +76,28 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+void  set_hop(message_data * mesg){
+	int hops_taken_insert_index;
+
+	for(int i = 0; i < MAXNUMNODES; i ++){
+		if(mesg->hops_taken[i]==-1){
+			hops_taken_insert_index = i;
+
+			break;
+		}
+	}
+	mesg->hops_taken[ hops_taken_insert_index ] = virtual_id;
+	mesg->hops_taken[ hops_taken_insert_index + 1 ] = -1;
+
+}
+void print_message(message_data * msg){
+	printf("from %d to %d hops ", msg->source, msg->destination);
+			for(int i = 0; msg->hops_taken[i] != -1; i++){
+				printf("%d ",msg->hops_taken[i]);
+			}
+	printf("%d ", virtual_id);
+	printf("%s\n",msg->msg);
+}
 
 void * sendMsg(void * param)
 {
@@ -121,6 +145,7 @@ void * sendMsg(void * param)
     			}
 	 		
 			char buf[MAXDATASIZE];
+			set_hop( &mData_inc.front());
 			memcpy(buf, &mData_inc.front(), sizeof(message_data));
     			printf("SEND to %d\n", mData_inc.front().destination);
 			mData_inc.pop();
@@ -216,6 +241,7 @@ void * recvMsg(void * param)
 		message_data msg_recv;
 		memcpy(&msg_recv, buf, sizeof(message_data));
 		printf("MESSAGE RECEIVED: %s\n", msg_recv.msg);
+		print_message(&msg_recv);
 		mData_inc.push(msg_recv);
 		pthread_t sendThread;
 		pthread_create(&sendThread, NULL, sendMsg, NULL);
@@ -337,7 +363,7 @@ void * checkConvergence(void * param)
 			if(update_routing_flag)
 			{
 				djikstra();
-
+						/*
                 		for(int x = 0; x<MAXNUMNODES; x++)
                 		{
                     			for(int y = 0; y<MAXNUMNODES; y++)
@@ -345,7 +371,7 @@ void * checkConvergence(void * param)
                         			if(rData_init.topology[x][y] != -1)
                             			printf("RData_INIT: %d, at %d, %d\n",rData_init.topology[x][y], x, y);
                     			}
-                		}
+                		}*/
                 
 				printf("Routing Table:\n");
 				map<int, vector<int> >::const_iterator it_map;
