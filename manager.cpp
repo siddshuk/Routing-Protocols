@@ -20,9 +20,11 @@
 
 #define BACKLOG 20	 // how many pending connections queue will hold
 
-#define MAXDATASIZE 900 // max number of bytes we can get at once
+#define MAXDATASIZE 4000 // max number of bytes we can get at once
 
 #define MAXNUMNODES 20 //max number of nodes that can connect at once
+
+#define MAX_MESSAGE_SIZE 900
 
 using namespace std;
 
@@ -35,21 +37,36 @@ map<int, bool> nodes_connected;
 
 typedef struct neighbor_data
 {
-	//map<int, int> neighbor_id_cost;
-	//map<int, string> neighbor_ip_address;
 	int neighbor_id_cost[MAXNUMNODES];
-	char neighbor_ip_address[MAXNUMNODES][100];
+	char neighbor_ip_address[MAXNUMNODES][40];
 } neighbor_data;
 
 typedef struct message_data
 {
 	int source;
 	int destination;
-	short hops_taken[MAXNUMNODES];
-	char msg[MAXDATASIZE];
-} message_data;
+	short hops_taken[MAXNUMNODES+1];
+	char msg[MAX_MESSAGE_SIZE];
+	void init()
+	{
+		source = -1;
+		destination = -1;
+		hops_taken[0] = -1;
+		msg[0]='\0';		
+	}
+	void debug(){
+		printf("#---------message data debug-----------------------");
+		printf("source: %d\n",source);
+		printf("destination: %d\n",destination);
+		for(int i = 0; i < MAXNUMNODES+1;i++){
+			printf("hpt[%d]: %d\n", i, hops_taken[i]);
+		}
+		printf("message: %s\n",msg);
+		printf("#---------message data debug-----------------------");
+	}
+};
 
-message_data mData[100];
+message_data mData[1024];
 
 void initialize()
 {
@@ -157,7 +174,7 @@ void updateTopology(char * line, char * pch)
 		nodes_all.push_back(top_map_key2);
 	}
 	
-	printTopology();
+	//printTopology();
 }
 
 void parseMessageFile(char * fileName)
@@ -172,6 +189,11 @@ void parseMessageFile(char * fileName)
 	size_t read;
 	int pch_flag = 0;
 	int i = 0;
+
+	for(int y = 0; y < 1024; y++){
+		mData[y].init();
+	}
+
 	while ((read = getline(&line, &len, message_file)) != -1) 
 	{
 		int startPoint = 0;
@@ -210,7 +232,7 @@ void parseMessageFile(char * fileName)
 
 void * informNode(void * param)
 {
-	printf("ENTERING INFOMR\n");	
+	
 	int * arg_id = (int *) param;
 	int virtual_id = *arg_id;
 	struct neighbor_data nData;
@@ -229,46 +251,38 @@ void * informNode(void * param)
 		for(it = (search->second).begin(); it != (search->second).end(); ++it)
 		{
 			int neighbor_id = (*it)[0];
-			printf("NEIGHBOR ID: %d => ", neighbor_id);	
+			//printf("NEIGHBOR ID: %d => ", neighbor_id);	
 			nData.neighbor_id_cost[neighbor_id] = (*it)[1];
-			printf("NEIGHBOR COST: %d => \n", (*it)[1]);
+			//printf("NEIGHBOR COST: %d => \n", (*it)[1]);
 			map<int, bool>::const_iterator conn_it = nodes_connected.find(neighbor_id);	
 			if(conn_it != nodes_connected.end())
 			{
-				//printf("OH\n");
 				if(conn_it->second == true)
 				{
-					//printf("YEA\n");
 					map<int, string>::const_iterator search_ip = ip_address_nodes.find(neighbor_id);
 					if(search_ip != ip_address_nodes.end())
 					{
-						//printf("IP = %s\n", search_ip->second);
-						//nData.neighbor_ip_address[neighbor_id] = new char[sizeof(search_ip->second)];
 						strcpy(nData.neighbor_ip_address[neighbor_id], (search_ip->second).c_str());  
-						//printf("YO");
+						//printf("IP = %s\n", (search_ip->second).c_str());
+						
 					}
 				}
 			}
 		}
 	}
 
-	/*map<int, string>::const_iterator check;
-	for(check = nData.neighbor_ip_address.begin(); check != nData.neighbor_ip_address.end(); ++check)
-	{
-		printf("CHECK: %s\n", check->second);
-	}*/
-
 	char buffer[MAXDATASIZE];
-	//printf("Size of nData = %d\n", sizeof(nData));
 	memcpy(buffer, &nData, sizeof(neighbor_data));
-	printf("NO ERR\n");
+	
 	map<int, int>::const_iterator sock_it = socket_fds.find(virtual_id);	
 	if(sock_it != socket_fds.end())
 	{
-		//printf("buffer = %s\n", buffer[0]);
-		if(send(sock_it->second, buffer, MAXDATASIZE, 0) != -1)
-			printf("SENDING 4000\n");
-			//perror("Error sending neighbor info to node");
+		if(send(sock_it->second, buffer, MAXDATASIZE, 0) == -1)
+		{
+			perror("Error sending neighbor info to node");
+			printf("socket: %d", sock_it->second);
+		}
+			
 	}
 	return NULL;
 }
@@ -279,10 +293,10 @@ void * stdinHandler(void * param)
 	sleep(2);	
 	while(1)
 	{
-		printf("\nEnter additional topology info: ");
+		//printf("\nEnter additional topology info: ");
 		char * line = new char[50];
 		cin.getline(line, 50);
-		printf("LINE ENTERED: %s\n", line);
+		//printf("LINE ENTERED: %s\n", line);
 		char * pch;	
 		updateTopology(line, pch);
 	
@@ -438,7 +452,7 @@ int main(int argc, char *argv[])
 		nodes_all.erase(nodes_all.begin());
 		
 		//set the node as connected
-		printf("SETTING CONNECTED ID: %d\n", virtual_id);
+		//printf("SETTING CONNECTED ID with socket_fd: %d %d\n", virtual_id, new_fd);
 		nodes_connected[virtual_id] = true;
 	
 		//save socket being used by node
@@ -452,9 +466,10 @@ int main(int argc, char *argv[])
 		char * virtual_id_str = (char *) ss.str().c_str();
  		
 		//send virtual id to node
-		if(!send(new_fd, virtual_id_str, MAXDATASIZE, 0) != -1)
-            perror("Error sending virtual id");
-                	//printf("SENDING VIRTUAL ID\n");
+		if(send(new_fd, virtual_id_str, MAXDATASIZE, 0) == -1)
+		{
+			    perror("Error sending virtual id");
+		}
 			
 
 		sleep(1);
@@ -467,7 +482,13 @@ int main(int argc, char *argv[])
 				//msg_flag = 1;
 				memcpy(msg_buf, &(mData[i]), sizeof(message_data));
 				//send virtual id to node
-				if(!send(new_fd, msg_buf, MAXDATASIZE, 0) != -1){sleep(1);}
+				if(send(new_fd, msg_buf, MAXDATASIZE, 0) == -1){
+					perror("there was an error sending the message");
+				} 
+				else
+				{
+					sleep(1);
+				}
                 		
 					//printf("SENDING MESSAGE\n");
 					
@@ -478,10 +499,9 @@ int main(int argc, char *argv[])
 		//if(!msg_flag)
 		//{
 			message_data empty_msg;
-			empty_msg.source = -1;
-			empty_msg.destination = -1;
-			empty_msg.hops_taken[0] = -1;
-			strcpy(empty_msg.msg, "");	
+			empty_msg.init();
+			
+			//strcpy(empty_msg.msg, "");	
 		
 			memcpy(msg_buf, &empty_msg, sizeof(message_data));		
 			if(send(new_fd, msg_buf, MAXDATASIZE, 0) != -1){}

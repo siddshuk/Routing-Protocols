@@ -1,4 +1,5 @@
-#include <stdio.h> #include <stdlib.h>
+#include <stdio.h> 
+#include <cstdlib>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -39,7 +40,7 @@ map<int, vector<int> > forwarding_tbl;
 typedef struct neighbor_data
 {
         int neighbor_id_cost[MAXNUMNODES];
-	char neighbor_ip_address[MAXNUMNODES][100];
+	char neighbor_ip_address[MAXNUMNODES][40];
 } neighbor_data;
 
 typedef struct routing_data
@@ -54,9 +55,19 @@ typedef struct message_data
 {
         int source;
         int destination;
-        short hops_taken[MAXNUMNODES];
+        short hops_taken[MAXNUMNODES+1];
         char msg[MAX_MESSAGE_SIZE];
-} message_data;
+        void debug(){
+       	printf("#---------message data debug-----------------------");
+		printf("source: %d\n",source);
+		printf("destination: %d\n",destination);
+		for(int i = 0; i < MAXNUMNODES+1;i++){
+			printf("hpt[%d]: %d\n", i, hops_taken[i]);
+		}
+		printf("message: %s\n",msg);
+		printf("#---------message data debug-----------------------");
+	}
+};
 
 queue<message_data> mData;
 queue<message_data> mData_inc;		
@@ -79,7 +90,7 @@ void *get_in_addr(struct sockaddr *sa)
 void  set_hop(message_data * mesg){
 	int hops_taken_insert_index;
 
-	for(int i = 0; i < MAXNUMNODES; i ++){
+	for(int i = 0; i < MAXNUMNODES+1; i ++){
 		if(mesg->hops_taken[i]==-1){
 			hops_taken_insert_index = i;
 
@@ -93,7 +104,7 @@ void  set_hop(message_data * mesg){
 
 void print_message(message_data * msg){
 	printf("from %d to %d hops ", msg->source, msg->destination);
-			for(int i = 0; msg->hops_taken[i] != -1; i++){
+			for(int i = 0; msg->hops_taken[i] != -1 && i<MAXNUMNODES+1; i++){
 				printf("%d ",msg->hops_taken[i]);
 			}
 	printf("%d ", virtual_id);
@@ -126,7 +137,7 @@ void * sendMsg(void * param)
 	
 	    		if ((rv = getaddrinfo((ip_it->second).c_str(), port_str, &hints, &servinfo)) != 0) {
         			fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        			exit(1);
+        			std::exit(1);
     			}
 	
 	    		// loop through all the results and make a socket

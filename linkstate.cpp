@@ -38,8 +38,8 @@ int update_routing_flag = 1;
 
 typedef struct neighbor_data
 {
-        int neighbor_id_cost[MAXNUMNODES];
-	char neighbor_ip_address[MAXNUMNODES][100];
+    int neighbor_id_cost[MAXNUMNODES];
+	char neighbor_ip_address[MAXNUMNODES][40];
 } neighbor_data;
 
 typedef struct routing_data
@@ -54,9 +54,20 @@ typedef struct message_data
 {
         int source;
         int destination;
-        short hops_taken[MAXNUMNODES];
+        short hops_taken[MAXNUMNODES+1];
         char msg[MAX_MESSAGE_SIZE];
-} message_data;
+
+    void debug(){
+		printf("#---------message data debug-----------------------");
+		printf("source: %d\n",source);
+		printf("destination: %d\n",destination);
+		for(int i = 0; i < MAXNUMNODES+1;i++){
+			printf("hpt[%d]: %d\n", i, hops_taken[i]);
+		}
+		printf("message: %s\n",msg);
+		printf("#---------message data debug-----------------------");
+	}
+};
 
 queue<message_data> mData;
 queue<message_data> mData_inc;
@@ -76,23 +87,30 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-void  set_hop(message_data * mesg){
-	int hops_taken_insert_index;
+void  set_hop(message_data * mesg)
+{
+	int hops_taken_insert_index = -1;
 
-	for(int i = 0; i < MAXNUMNODES; i ++){
+	for(int i = 0; i < MAXNUMNODES+1; i ++){
 		if(mesg->hops_taken[i]==-1){
 			hops_taken_insert_index = i;
 
 			break;
 		}
 	}
-	mesg->hops_taken[ hops_taken_insert_index ] = virtual_id;
-	mesg->hops_taken[ hops_taken_insert_index + 1 ] = -1;
-
+	if(hops_taken_insert_index == -1)
+	{
+		printf("error finding next hop index\n");
+	}
+	else
+	{
+		mesg->hops_taken[ hops_taken_insert_index ] = virtual_id;
+		mesg->hops_taken[ hops_taken_insert_index + 1 ] = -1;
+	}
 }
 void print_message(message_data * msg){
 	printf("from %d to %d hops ", msg->source, msg->destination);
-			for(int i = 0; msg->hops_taken[i] != -1; i++){
+			for(int i = 0; msg->hops_taken[i] != -1 && i<MAXNUMNODES+1; i++){
 				printf("%d ",msg->hops_taken[i]);
 			}
 	printf("%d ", virtual_id);
@@ -124,7 +142,7 @@ void * sendMsg(void * param)
     			hints.ai_socktype = SOCK_DGRAM;
 	
 	    		if ((rv = getaddrinfo((ip_it->second).c_str(), port_str, &hints, &servinfo)) != 0) {
-        			fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        			fprintf(stderr, "sendmsg getaddrinfo: %s\n", gai_strerror(rv));
         			exit(1);
     			}
 	
@@ -147,7 +165,7 @@ void * sendMsg(void * param)
 			char buf[MAXDATASIZE];
 			set_hop( &mData_inc.front());
 			memcpy(buf, &mData_inc.front(), sizeof(message_data));
-    			printf("SEND to %d\n", mData_inc.front().destination);
+    			//printf("SEND to %d\n", mData_inc.front().destination);
 			mData_inc.pop();
     			if ((numbytes = sendto(sockfd, buf, MAXDATASIZE, 0,
              			p->ai_addr, p->ai_addrlen)) == -1) {
@@ -157,7 +175,7 @@ void * sendMsg(void * param)
 	
     			freeaddrinfo(servinfo);
 
-    			printf("talker: sent %d bytes\n", numbytes);
+    			//printf("talker: sent %d bytes\n", numbytes);
 			close(sockfd);
 			sleep(1);
     		}
@@ -186,7 +204,7 @@ void * recvMsg(void * param)
     	hints.ai_flags = AI_PASSIVE; // use my IP
 
     	if ((rv = getaddrinfo(NULL, port_str, &hints, &servinfo)) != 0) {
-        	fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        	fprintf(stderr, "recvmsg getaddrinfo: %s\n", gai_strerror(rv));
         	exit(1);
     	}
 
@@ -220,7 +238,7 @@ void * recvMsg(void * param)
 
     	freeaddrinfo(servinfo);
 
-    	printf("listener: waiting to recvfrom...\n");
+    	//printf("listener: waiting to recvfrom...\n");
 
     	addr_len = sizeof their_addr;
 	while(1)
@@ -231,16 +249,16 @@ void * recvMsg(void * param)
         		exit(1);
     		}
 
-    		printf("listener: got packet from %s\n",
+    		/*printf("listener: got packet from %s\n",
         		inet_ntop(their_addr.ss_family,
            		get_in_addr((struct sockaddr *)&their_addr),
-            		s, sizeof s));
-    		printf("listener: packet is %d bytes long\n", numbytes);
+            		s, sizeof s));*/
+    		//printf("listener: packet is %d bytes long\n", numbytes);
     		//buf[numbytes] = '\0';
     		//printf("listener: packet contains \"%s\"\n", buf);
 		message_data msg_recv;
 		memcpy(&msg_recv, buf, sizeof(message_data));
-		printf("MESSAGE RECEIVED: %s\n", msg_recv.msg);
+		//printf("MESSAGE RECEIVED: %s\n", msg_recv.msg);
 		print_message(&msg_recv);
 		mData_inc.push(msg_recv);
 		pthread_t sendThread;
@@ -256,7 +274,7 @@ int dj_cost[MAXNUMNODES];
 
 void updateRoutingTbl()
 {
-	printf("UPDATING ROUTING TBL\n");
+	//printf("UPDATING ROUTING TBL\n");
 	for(int i = 0; i<MAXNUMNODES; i++)
 	{
 		if(dj_prev[i] != -1)
@@ -271,9 +289,9 @@ void updateRoutingTbl()
 			{
 				st.push(dj_prev[j]);
 				j = dj_prev[j];
-				printf("WHILE\n");
+				//printf("WHILE\n");
 			}
-			printf("out of while\n");
+			//printf("out of while\n");
 			st.push(virtual_id);
 			
 			while(!st.empty())
@@ -289,7 +307,7 @@ void updateRoutingTbl()
 			//do nothing
 		}
 	}
-	printf("DONE UPDATING ROUTING TBL\n");
+	//printf("DONE UPDATING ROUTING TBL\n");
 }
 
 int minDist(int distance[], bool s[])
@@ -305,6 +323,17 @@ int minDist(int distance[], bool s[])
 		}
 	}
 	return n;
+}
+
+void print_ip_map(map<int,string> * m)
+{
+	map<int, string>::const_iterator it_map;
+	printf("#------------------------ip map---------------------");
+	for(it_map = m->begin(); it_map != m->end(); ++it_map)
+	{
+		printf("(virtual_id, ip): (%d,%s)\n", it_map->first, (it_map->second).c_str());
+	}
+	printf("#------------------------ip map end---------------------");
 }
 
 void djikstra()
@@ -330,23 +359,23 @@ void djikstra()
 			int weight = rData_init.topology[u][k];
 			if(weight>0)
 			{
-				printf("%d, %d => %d\n", u, k, weight);
+				//printf("%d, %d => %d\n", u, k, weight);
 				if((!s[k])&&(distance[u] != 32767)&&((distance[u] + weight) < distance[k]))
 				{
 					distance[k] = distance[u] + weight;
 					dj_prev[k] = u;
 					dj_cost[k] = distance[k];
-					printf("NODE k = %d\n", k);
+					//printf("NODE k = %d\n", k);
 				}
 			}
 		}
 	}
-printf("DJIKSTRA's COMPLETE!\n");	
+/*printf("DJIKSTRA's COMPLETE!\n");	
 	//dj_prev[source] = 0;
 	for(int i = 0; i<MAXNUMNODES; i++)
 	{
 		printf("DJ_PRE: %d\n", dj_prev[i]);
-	}
+	}*/
 	updateRoutingTbl();	
 }
 
@@ -373,7 +402,7 @@ void * checkConvergence(void * param)
                     			}
                 		}*/
                 
-				printf("Routing Table:\n");
+				//printf("Routing Table:\n");
 				map<int, vector<int> >::const_iterator it_map;
 				for(it_map = routing_tbl.begin(); it_map != routing_tbl.end(); ++it_map)
 				{
@@ -428,8 +457,8 @@ void * sendUDP(void * param)
 	memcpy(buf, &rData_init, sizeof(routing_data));
 
 	map<int, string>::const_iterator ip_it;
-	for(ip_it = ip_address_nodes.begin(); ip_it != ip_address_nodes.end(); ++ip_it)
-	{
+	//print_ip_map(&ip_address_nodes);
+	for(ip_it = ip_address_nodes.begin(); ip_it != ip_address_nodes.end(); ++ip_it){
 		int port = 4095 + ip_it->first;
 		char port_str[50];
 		sprintf(port_str, "%d", port);
@@ -444,7 +473,7 @@ void * sendUDP(void * param)
     		hints.ai_socktype = SOCK_DGRAM;
 
     		if ((rv = getaddrinfo((ip_it->second).c_str(), port_str, &hints, &servinfo)) != 0) {
-        		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        		fprintf(stderr, "sendUdp getaddrinfo: %s\n", gai_strerror(rv));
         		exit(1);
     		}
 
@@ -473,7 +502,7 @@ void * sendUDP(void * param)
 
     		freeaddrinfo(servinfo);
 
-    		printf("talker: sent %d bytes\n", numbytes);
+    		//printf("talker: sent %d bytes\n", numbytes);
 		close(sockfd);
 		sleep(1);
     	}
@@ -501,7 +530,7 @@ void * recvUDP(void * param)
     	hints.ai_flags = AI_PASSIVE; // use my IP
 
     	if ((rv = getaddrinfo(NULL, port_str, &hints, &servinfo)) != 0) {
-        	fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        	fprintf(stderr, "recvUDP getaddrinfo: %s\n", gai_strerror(rv));
         	exit(1);
     	}
 
@@ -535,30 +564,30 @@ void * recvUDP(void * param)
 
     	freeaddrinfo(servinfo);
 
-    	printf("listener: waiting to recvfrom...\n");
+    	//printf("listener: waiting to recvfrom...\n");
 
     	addr_len = sizeof their_addr;
-	printf("HERE\n");
+	
 	while(1)
 	{
-		printf("YOOOOOO\n");
+		
 		if ((numbytes = recvfrom(sockfd, buf, MAXDATASIZE , 0,
         		(struct sockaddr *)&their_addr, &addr_len)) == -1) {
         		perror("recvfrom");
         		exit(1);
     		}
 
-    		printf("listener: got packet from %s\n",
+    		/*printf("listener: got packet from %s\n",
         		inet_ntop(their_addr.ss_family,
            		get_in_addr((struct sockaddr *)&their_addr),
-            		s, sizeof s));
-    		printf("listener: packet is %d bytes long\n", numbytes);
+            		s, sizeof s));*/
+    		//printf("listener: packet is %d bytes long\n", numbytes);
     		//buf[numbytes] = '\0';
     		//printf("listener: packet contains \"%s\"\n", buf)MAXDATASIZEta_inc;
 		routing_data rData_inc;
 		memcpy(&rData_inc, buf, sizeof(routing_data));
 
-		printf("NODE INFO FOR ID: %d\n", rData_inc.node_id);
+		//printf("NODE INFO FOR ID: %d\n", rData_inc.node_id);
 
 		int update_flag = 0;
 		//update forwarding table
@@ -595,7 +624,7 @@ void * recvUDP(void * param)
 
 void * communicateWithNodes(void * param)
 {
-	printf("COMMUNICATING\n");
+	
 	rData_init.node_id = virtual_id;
 	for(int i = 0; i<MAXNUMNODES; i++)
 	{
@@ -656,7 +685,7 @@ void * communicateWithManager(void * param)
 	hints.ai_socktype = SOCK_STREAM;
 
 	if ((rv = getaddrinfo(manager_ip_address, MANAGERPORT, &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		fprintf(stderr, "communicateMm getaddrinfo: %s\n", gai_strerror(rv));
 		exit(0);
 	}
 
@@ -691,12 +720,12 @@ void * communicateWithManager(void * param)
 	{
 		if((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) > 0)
 		{
-			printf("Number of bytes recv = %d\n", numbytes);
+			//printf("Number of bytes recv = %d\n", numbytes);
 			if(virtual_id == 0)
 			{
 				//assign node new id
 				istringstream (buf) >> virtual_id;
-				printf("VIRTUAL ID = %d\n", virtual_id);
+				//printf("VIRTUAL ID = %d\n", virtual_id);
 				
 				pthread_t nodeThread;
 				pthread_create(&nodeThread, NULL, communicateWithNodes, NULL);
@@ -705,9 +734,9 @@ void * communicateWithManager(void * param)
             {
 				message_data msg_recv;
 				memcpy(&msg_recv, buf, sizeof(message_data));
-				printf("MESSAGE SOURCE: %d\n", msg_recv.source);
-				printf("MESSAGE DESTINATION: %d\n", msg_recv.destination);
-				printf("MESSAGE PAYLOAD: %s\n ", msg_recv.msg);
+				//printf("MESSAGE SOURCE: %d\n", msg_recv.source);
+				//printf("MESSAGE DESTINATION: %d\n", msg_recv.destination);
+				//printf("MESSAGE PAYLOAD: %s\n ", msg_recv.msg);
 				if(msg_recv.source == -1)
 					msg_flag = 1;
 				else
@@ -718,8 +747,6 @@ void * communicateWithManager(void * param)
 				//get neighbor info
 				neighbor_data nData;
 				memcpy(&nData, buf, sizeof(neighbor_data));
-				//printf("TEST Val = %d\n", nData.neighbor_id_cost[2]);
-				printf("enter for\n");
 				for(int i = 0; i<MAXNUMNODES; i++)
 				{
 					if(i != virtual_id)
@@ -731,7 +758,7 @@ void * communicateWithManager(void * param)
 							
 							rData_init.topology[virtual_id][i] = n_cost;
 							rData_init.topology[i][virtual_id] = n_cost;							
-
+							//printf("NEIGHBOR (VMID,IP):%d %s \n", i, nData.neighbor_ip_address[i]);
 							if(strcmp(nData.neighbor_ip_address[i], "N/A") != 0)
 							{
 								ip_address_nodes[i] = nData.neighbor_ip_address[i];
@@ -765,19 +792,14 @@ void * communicateWithManager(void * param)
 					else
 					{
 						neighbor_cost[i] = 0;
-						//ip_address_nodes[i] = s;
 					}
 				}
-				printf("exit for\n");
+				//printf("exit for\n");
 				pthread_t sendThread;
 				pthread_create(&sendThread, NULL, sendUDP, NULL);
 				
-				//pthread_t nodeThread;
-				//pthread_create(&nodeThread, NULL, communicateWithNodes, NULL);
-				
 				converged = 0;
 				restart_timer();
-				//update_routing_flag = 1;
 			}
 		}
 		else
