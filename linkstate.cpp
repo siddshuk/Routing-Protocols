@@ -25,7 +25,7 @@
 
 using namespace std;
 
-//global variable
+//global variables
 char manager_ip_address[100];
 int virtual_id = 0;
 int msg_flag = 0;
@@ -68,7 +68,20 @@ typedef struct message_data
 		printf("#---------message data debug-----------------------");
 	}
 };
+void print_routing_table()
+{
+	map<int, vector<int> >::const_iterator it_map;
+	for(it_map = routing_tbl.begin(); it_map != routing_tbl.end(); ++it_map)
+	{
+		printf("%d %d:", it_map->first, (it_map->second)[0]);
+		for(int i = 1; i<(it_map->second).size(); i++)
+		{
+			printf(" %d", (it_map->second)[i]);
+		}
+		printf("\n");
+	}
 
+}
 queue<message_data> mData;
 queue<message_data> mData_inc;
 
@@ -403,16 +416,7 @@ void * checkConvergence(void * param)
                 		}*/
                 
 				//printf("Routing Table:\n");
-				map<int, vector<int> >::const_iterator it_map;
-				for(it_map = routing_tbl.begin(); it_map != routing_tbl.end(); ++it_map)
-				{
-					printf("%d %d:", it_map->first, (it_map->second)[0]);
-					for(int i = 1; i<(it_map->second).size(); i++)
-					{
-						printf(" %d", (it_map->second)[i]);
-					}
-					printf("\n");
-				}
+                print_routing_table();
 
 				//update_routing_flag = 0;
 				pthread_t recvThread;
@@ -428,7 +432,8 @@ void * checkConvergence(void * param)
 				    	//mData.source = -1;
 				    	//mData.destination = -1;
 				    	//strcpy(mData.msg, "");
-				    	//printf("SENDING MSG FROM %d to %d\n", mData_inc.front().source, mData_inc.front().destination);	
+				    	//printf("SENDING MSG FROM %d to %d\n", mData_inc.front().source, mData_inc.front().destination);
+				    	print_message(&mData_inc.front());	
 				    	mData.pop();		
 	
 				    	pthread_t sendThread;
@@ -437,10 +442,10 @@ void * checkConvergence(void * param)
 				    	//sendMsg(NULL);
 					sleep(2);
 			    	}
-
+			    	//sidd why????????
 			    	while(converged)
 			    	{
-	
+					sleep(.1);
 				}
 			}
 		}
@@ -674,7 +679,7 @@ void * communicateWithNodes(void * param)
 
 void * communicateWithManager(void * param)
 {
-        int sockfd, numbytes;  
+    int sockfd, numbytes;  
 	char buf[MAXDATASIZE];
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
@@ -754,6 +759,12 @@ void * communicateWithManager(void * param)
 						int n_cost = nData.neighbor_id_cost[i];
 						if(n_cost > 0)
 						{
+							if(n_cost != neighbor_cost[i])
+							{
+								printf("now linked to node %d with cost %d\n", i, n_cost);
+
+							}
+							
 							neighbor_cost[i] = n_cost;
 							
 							rData_init.topology[virtual_id][i] = n_cost;
@@ -762,9 +773,10 @@ void * communicateWithManager(void * param)
 							if(strcmp(nData.neighbor_ip_address[i], "N/A") != 0)
 							{
 								ip_address_nodes[i] = nData.neighbor_ip_address[i];
+								
 							}
 
-							printf("now linked to node %d with cost %d\n", i, n_cost);
+							
 						}
 						else if(n_cost < 0)
 						{

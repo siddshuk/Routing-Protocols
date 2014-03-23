@@ -39,6 +39,7 @@ typedef struct neighbor_data
 {
 	int neighbor_id_cost[MAXNUMNODES];
 	char neighbor_ip_address[MAXNUMNODES][40];
+
 } neighbor_data;
 
 typedef struct message_data
@@ -275,6 +276,7 @@ void * informNode(void * param)
 	memcpy(buffer, &nData, sizeof(neighbor_data));
 	
 	map<int, int>::const_iterator sock_it = socket_fds.find(virtual_id);	
+
 	if(sock_it != socket_fds.end())
 	{
 		if(send(sock_it->second, buffer, MAXDATASIZE, 0) == -1)
@@ -282,7 +284,7 @@ void * informNode(void * param)
 			perror("Error sending neighbor info to node");
 			printf("socket: %d", sock_it->second);
 		}
-			
+			//printf("Sending neighbor data to node %d\n", virtual_id);
 	}
 	return NULL;
 }
