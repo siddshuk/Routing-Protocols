@@ -15,6 +15,8 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <queue>
+#include <semaphore.h>
 
 #define MYPORT "8000"    // the port users will be connecting to
 
@@ -34,9 +36,16 @@ vector<int> nodes_all;
 map<int, int> socket_fds;
 map<int, string> ip_address_nodes;
 map<int, bool> nodes_connected;
+queue<char *> user_input_queue;//be caureful with threads
+sem_t q_sem;
+sem_t necessary_nodes_sem;//because we don't want to send a message with incomplete graphs
+int total_valid_nodes = 0;
+int total_connected_nodes = 0;
+
 
 typedef struct neighbor_data
 {
+	int type;
 	int neighbor_id_cost[MAXNUMNODES];
 	char neighbor_ip_address[MAXNUMNODES][40];
 
@@ -44,12 +53,16 @@ typedef struct neighbor_data
 
 typedef struct message_data
 {
+	int type;	//this is very hacky... 
 	int source;
 	int destination;
+	short send_signal;
 	short hops_taken[MAXNUMNODES+1];
 	char msg[MAX_MESSAGE_SIZE];
 	void init()
 	{
+		type = 1;	
+		send_signal = -1;
 		source = -1;
 		destination = -1;
 		hops_taken[0] = -1;
@@ -69,10 +82,7 @@ typedef struct message_data
 
 message_data mData[1024];
 
-void initialize()
-{
-	
-}
+
 
 /*
 *	Testing if topology put in map correctly
@@ -92,9 +102,10 @@ void printTopology()
 	}
 }
 
-void updateTopology(char * line, char * pch)
+void updateTopology(char * line)
 {
-	pch = strtok(line, " ");
+
+	char * pch = strtok(line, " ");
 	int pch_key_flag = 0;
 	int top_map_key1;
 	int top_map_key2;
@@ -168,11 +179,13 @@ void updateTopology(char * line, char * pch)
 	{
 		//new node
 		nodes_all.push_back(top_map_key1);
+		total_valid_nodes++;
 	}
 	if(std::find(nodes_all.begin(), nodes_all.end(), top_map_key2) == nodes_all.end())
 	{
 		//new node
 		nodes_all.push_back(top_map_key2);
+		total_valid_nodes++;
 	}
 	
 	//printTopology();
@@ -237,7 +250,7 @@ void * informNode(void * param)
 	int * arg_id = (int *) param;
 	int virtual_id = *arg_id;
 	struct neighbor_data nData;
-
+	nData.type = 0;
 	for(int i = 0; i<MAXNUMNODES; i++)
 	{
 		nData.neighbor_id_cost[i] = 0;
@@ -290,30 +303,21 @@ void * informNode(void * param)
 }
 
 void * stdinHandler(void * param)
-{
-	//maybe sleep for a bit
-	sleep(2);	
+{	
+	char * line = new char[50];
+	cin.getline(line, 50);
+	user_input_queue.push(line);
+
+		sem_post(&q_sem);
 	while(1)
 	{
-		//printf("\nEnter additional topology info: ");
-		char * line = new char[50];
+
+		line = new char[50];
 		cin.getline(line, 50);
-		//printf("LINE ENTERED: %s\n", line);
-		char * pch;	
-		updateTopology(line, pch);
-	
-		//send neighbor info to node
-        	map<int, int>::const_iterator sock_it;
-		for(sock_it = socket_fds.begin(); sock_it != socket_fds.end(); ++sock_it)
-		{
-			int * arg = new int;
-			*arg = sock_it->first;
-			pthread_t nodeThread;
-			pthread_create(&nodeThread, NULL, informNode, arg);		
-		
-		}        
-	
-		sleep(1);
+		user_input_queue.push(line);
+
+		sem_post(&q_sem);
+
 	}
 
 	return NULL;
@@ -329,12 +333,11 @@ void parseTopologyFile(char * fileName)
 		perror("Topology file is empty");
 
 	char * line = NULL;
-	char * pch;
 	size_t len = 0;
 	size_t read;
 	while ((read = getline(&line, &len, topology_file)) != -1) 
 	{
-		updateTopology(line, pch);		
+		updateTopology(line);		
 	}
 	//arrange all nodes in order
 	sort(nodes_all.begin(), nodes_all.end());
@@ -356,14 +359,16 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(int argc, char *argv[])
+/**
+*	main thread
+*/
+int state_initial(int argc, char *argv[])
 {
-	initialize();
 	int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
 	struct addrinfo hints, *servinfo, *p;
 	struct sockaddr_storage their_addr; // connector's address information
 	socklen_t sin_size;
-	struct sigaction sa;
+	
 	int yes=1;
 	char s[INET6_ADDRSTRLEN];
 	int rv;
@@ -373,6 +378,8 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	parseTopologyFile(argv[1]);
+
+	
 	//printTopology();
 	parseMessageFile(argv[2]);	
 
@@ -421,18 +428,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	sa.sa_handler = sigchld_handler; // reap all dead processes
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-		perror("sigaction");
-		exit(1);
-	}
 
-	//printf("server: waiting for connections...\n");
-	
-	pthread_t stdinThread;
-	pthread_create(&stdinThread, NULL, stdinHandler, NULL);
 	
 	while(1) {  // main accept() loop
 		sin_size = sizeof their_addr;
@@ -441,6 +437,9 @@ int main(int argc, char *argv[])
 			perror("accept");
 			continue;
 		}
+		total_connected_nodes++;
+		sem_post(&necessary_nodes_sem);
+
 
 		inet_ntop(their_addr.ss_family,
 			get_in_addr((struct sockaddr *)&their_addr),
@@ -474,7 +473,6 @@ int main(int argc, char *argv[])
 		}
 			
 
-		sleep(1);
 		//int msg_flag = 0;
 		char msg_buf[MAXDATASIZE];
 		for(int i = 0; i<100; i++)
@@ -489,7 +487,7 @@ int main(int argc, char *argv[])
 				} 
 				else
 				{
-					sleep(1);
+					//sleep(1);
 				}
                 		
 					//printf("SENDING MESSAGE\n");
@@ -521,6 +519,173 @@ int main(int argc, char *argv[])
 		
 		}
 	}
+	return 0;
+}
+
+/**
+*	Tell all the nodes only their neighbor's info
+*/
+void send_neighbor_update(){
+	//send neighbor info to node
+	map<int, int>::const_iterator sock_it;
+	for(sock_it = socket_fds.begin(); sock_it != socket_fds.end(); ++sock_it)
+	{
+		int * arg = new int;
+		*arg = sock_it->first;
+		pthread_t nodeThread;
+		pthread_create(&nodeThread, NULL, informNode, arg);		
+
+	} 
+}
+
+/**
+*	We wait for all the nodes to send us an ack/convergence signal
+*/
+void wait_for_convergence(){
+		map<int, int>::const_iterator sock_it;
+	char buf[MAXDATASIZE];
+	for(sock_it = socket_fds.begin(); sock_it != socket_fds.end(); ++sock_it)
+	{
+		int numbytes = -1;
+		if(numbytes = recv(sock_it->second, buf, MAXDATASIZE, 0) < 0)
+		{
+			perror("didn't expect this to fail on convergence :(");
+		}
+		//printf("got signaled by %d\n", sock_it->first);//delete
+	}
+	//printf("convergerd\n");
+}
+
+/**
+*	Due to dumb reasons, the nodes store the messages that they need to send. We just
+*	need to send the signal for them to send it
+*/
+void send_message_signal(){
+	
+	char msg_buf[MAXDATASIZE];
+	for(int i = 0; i<100; i++)
+	{
+		if(mData[i].source != -1)
+		{
+			int virtual_id = mData[i].source;
+			mData[i].send_signal = 1;
+			memcpy(msg_buf, &(mData[i]), sizeof(message_data));
+			int fd = socket_fds[virtual_id];
+			if(send(fd, msg_buf, MAXDATASIZE, 0) == -1){
+				perror("there was an error sending the message signal");
+			} 
+						
+			bzero(msg_buf, MAXDATASIZE);
+		}
+	}
+
+
+}
+/**
+*	At this point all the nodes necessary for the graph have
+*   joined and we should tell them to start converging
+*/
+void send_start_converging_signal(){
+		//send neighbor info to node
+	char msg_buf[MAXDATASIZE];
+	message_data m;
+	m.type = 2;
+	memcpy(msg_buf, &m, sizeof(message_data));
+	map<int, int>::const_iterator sock_it;
+	for(sock_it = socket_fds.begin(); sock_it != socket_fds.end(); ++sock_it)
+	{	
+		//printf("sent signal to %d\n", sock_it->first);
+		if(send(sock_it->second, msg_buf, MAXDATASIZE, 0) == -1){
+			perror("there was an error sending the message signal");
+
+		} 	
+
+	} 
+}
+
+
+/**
+*	This is the state that takes user input, sends neighbor info, 
+*	waits for convergence, then sends the message signal
+*/
+void * state_update(void * unused_param){
+	
+	//setup user input thread
+	struct sigaction sa;
+	sa.sa_handler = sigchld_handler; // reap all dead processes
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(1);
+	}
+	
+	pthread_t stdinThread;
+	pthread_create(&stdinThread, NULL, stdinHandler, NULL);
+	
+	sem_wait(&necessary_nodes_sem);
+	while(total_connected_nodes!=total_valid_nodes){
+		sem_wait(&necessary_nodes_sem);
+	}
+	
+	send_start_converging_signal();
+	//printf("sent cong sig\n");//delete
+	
+	//printf("waiting for sig\n");//delete
+	wait_for_convergence();//from state initial
+	sleep(1);
+	send_message_signal();
+	//printf("Sent msg sig\n");
+	bool q_empty = false;
+	while(1){
+		sleep(1);
+		sem_wait(&q_sem);
+		q_empty = user_input_queue.empty();
+
+		if(q_empty){
+			sem_post(&q_sem);
+		} else{
+
+
+
+		char * line = user_input_queue.front();
+		user_input_queue.pop();
+
+		updateTopology(line);
+		send_neighbor_update();
+		sleep(1);
+		send_start_converging_signal();
+		//printf("updated neighbors\n");
+		wait_for_convergence();
+		sleep(1);
+		send_message_signal();   
+		//printf("Sent msg sig\n");
+		}
+
+    
+		
+
+	}
+
+
+}
+
+int main(int argc, char *argv[])
+{
+	sem_init(&q_sem,0,0);
+	sem_init(&necessary_nodes_sem,0,0);
+
+
+	pthread_t later_update_thread;
+	pthread_create(&later_update_thread, NULL, state_update, NULL);
+
+
+	if(state_initial(argc, argv)!=0)
+		{
+			printf("Unwated error in the initial state\n");
+			return -1;
+		}
+
 
 	return 0;
 }

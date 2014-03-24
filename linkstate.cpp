@@ -16,6 +16,7 @@
 #include <limits>
 #include <stack>
 #include <queue>
+#include <semaphore.h>
 
 #define MYPORT "4950"
 #define MAXDATASIZE 4000 // max number of bytes we can get at once 
@@ -35,9 +36,16 @@ map<int, int> neighbor_cost;
 long time_stamp = -1;
 map<int, vector<int> > routing_tbl;
 int update_routing_flag = 1;
+int manager_sock = -1;
+sem_t start;
+sem_t sem_send;
 
+sem_t sem_timer;
+
+map<int, vector<int> > old_routing_tbl;
 typedef struct neighbor_data
 {
+	int type;
     int neighbor_id_cost[MAXNUMNODES];
 	char neighbor_ip_address[MAXNUMNODES][40];
 } neighbor_data;
@@ -51,11 +59,17 @@ typedef struct routing_data
 routing_data rData_init;
 
 typedef struct message_data
-{
+{	
+		int type;
         int source;
         int destination;
+        short send_signal;
         short hops_taken[MAXNUMNODES+1];
         char msg[MAX_MESSAGE_SIZE];
+
+    void clean_hops(){
+    	hops_taken[0]=-1;
+    }
 
     void debug(){
 		printf("#---------message data debug-----------------------");
@@ -70,24 +84,32 @@ typedef struct message_data
 };
 void print_routing_table()
 {
+		printf("\n");
 	map<int, vector<int> >::const_iterator it_map;
 	for(it_map = routing_tbl.begin(); it_map != routing_tbl.end(); ++it_map)
 	{
-		printf("%d %d:", it_map->first, (it_map->second)[0]);
-		for(int i = 1; i<(it_map->second).size(); i++)
+		if((it_map->second)[0]>0 || it_map->first == virtual_id)
 		{
-			printf(" %d", (it_map->second)[i]);
+			printf("%d %d:", it_map->first, (it_map->second)[0]);
+			for(int i = 1; i<(it_map->second).size(); i++)
+			{
+				printf(" %d", (it_map->second)[i]);
+			}
+			printf("\n");
 		}
-		printf("\n");
 	}
+		printf("\n");
 
 }
 queue<message_data> mData;
 queue<message_data> mData_inc;
-
+queue<message_data> mData_forward;
 void restart_timer()
 {
+
+	sem_wait(&sem_timer);
 	time_stamp = (long)time(0); 
+	sem_post(&sem_timer);
 }
 
 // get sockaddr, IPv4 or IPv6:
@@ -114,6 +136,10 @@ void  set_hop(message_data * mesg)
 	if(hops_taken_insert_index == -1)
 	{
 		printf("error finding next hop index\n");
+		printf("START DEBUG\n");
+		mesg->debug();
+		printf("END DEBUG\n");
+
 	}
 	else
 	{
@@ -126,18 +152,42 @@ void print_message(message_data * msg){
 			for(int i = 0; msg->hops_taken[i] != -1 && i<MAXNUMNODES+1; i++){
 				printf("%d ",msg->hops_taken[i]);
 			}
-	printf("%d ", virtual_id);
-	printf("%s\n",msg->msg);
+	//printf("%d ", virtual_id);
+	printf("%s",msg->msg);
 }
+
+
+void set_queues(){
+
+	while(!mData.empty())
+	{
+    	mData_inc.push(mData.front());
+    	mData.pop();
+	
+	}
+}
+
 
 void * sendMsg(void * param)
 {
-	sleep(2);
-	if(mData_inc.empty()) 
+	queue<message_data> * to_send_queue = (queue<message_data> *) param;
+	//sleep(2);
+	
+	if(to_send_queue->empty()){ 
+		
+		printf("holy crap it's null!\n");
 		return NULL;
-	map<int, vector<int> >::const_iterator nextNode = routing_tbl.find(mData_inc.front().destination);
+	}
+
+
+while(!to_send_queue->empty()){
+
+
+
+	map<int, vector<int> >::const_iterator nextNode = routing_tbl.find((to_send_queue->front().destination));
 	if((nextNode != routing_tbl.end()) && ((nextNode->second)[1] != 0))
 	{
+
 		map<int, string>::const_iterator ip_it = ip_address_nodes.find((nextNode->second)[2]);
 		if(ip_it != ip_address_nodes.end())
 		{
@@ -153,7 +203,7 @@ void * sendMsg(void * param)
     			memset(&hints, 0, sizeof hints);
     			hints.ai_family = AF_UNSPEC;
     			hints.ai_socktype = SOCK_DGRAM;
-	
+				//printf("sending to port, vmid: %s, %d", port_str, ip_it->first);
 	    		if ((rv = getaddrinfo((ip_it->second).c_str(), port_str, &hints, &servinfo)) != 0) {
         			fprintf(stderr, "sendmsg getaddrinfo: %s\n", gai_strerror(rv));
         			exit(1);
@@ -174,31 +224,59 @@ void * sendMsg(void * param)
         			fprintf(stderr, "talker: failed to bind socket\n");
         			exit(1);
     			}
+
+
 	 		
 			char buf[MAXDATASIZE];
-			set_hop( &mData_inc.front());
-			memcpy(buf, &mData_inc.front(), sizeof(message_data));
-    			//printf("SEND to %d\n", mData_inc.front().destination);
-			mData_inc.pop();
+
+			message_data * messd = &(to_send_queue->front());
+
+	 		if(messd->source == virtual_id){
+	 			
+	 			messd->clean_hops();
+	 			set_hop( messd);
+	 			memcpy(buf, messd, sizeof(message_data));
+				print_message(messd);
+	    		messd->clean_hops();//for next time
+				mData.push((*messd));
+				
+	 		}else {
+
+			
+			memcpy(buf, messd, sizeof(message_data));
+
+	 		}
+
+	 		to_send_queue->pop();
+
+	 			
     			if ((numbytes = sendto(sockfd, buf, MAXDATASIZE, 0,
              			p->ai_addr, p->ai_addrlen)) == -1) {
         			perror("talker: sendto");
         			exit(1);
     			}
-	
+
     			freeaddrinfo(servinfo);
 
-    			//printf("talker: sent %d bytes\n", numbytes);
 			close(sockfd);
 			sleep(1);
-    		}
-	}
+		
+    	} else {/*
+    		set_hop(&mData_inc.front());
+    		print_message(&mData_inc.front());
+    		mData_inc.front().clean_hops();//for next time
+			mData.push(mData_inc.front());*/
+    	}
+    }
+
+}
 
 	return NULL;	
 }
 
 void * recvMsg(void * param)
 {	
+	sem_wait(&start);
 	int port = 5095 + virtual_id;
 	char port_str[50];
 	sprintf(port_str, "%d", port);
@@ -254,6 +332,10 @@ void * recvMsg(void * param)
     	//printf("listener: waiting to recvfrom...\n");
 
     	addr_len = sizeof their_addr;
+    	//printf("I've set up my socket\n");
+
+    	//delete
+    	//printf("Starting recv with port, vm id: %s, %d\n", port_str, virtual_id);
 	while(1)
 	{
 		if ((numbytes = recvfrom(sockfd, buf, MAXDATASIZE , 0,
@@ -261,7 +343,8 @@ void * recvMsg(void * param)
         		perror("recvfrom");
         		exit(1);
     		}
-
+    		//delete
+    		//printf("I've GOTS sOMETHING....\n");
     		/*printf("listener: got packet from %s\n",
         		inet_ntop(their_addr.ss_family,
            		get_in_addr((struct sockaddr *)&their_addr),
@@ -269,14 +352,27 @@ void * recvMsg(void * param)
     		//printf("listener: packet is %d bytes long\n", numbytes);
     		//buf[numbytes] = '\0';
     		//printf("listener: packet contains \"%s\"\n", buf);
-		message_data msg_recv;
+        message_data msg_recv;
 		memcpy(&msg_recv, buf, sizeof(message_data));
+		
+		set_hop(&msg_recv);
 		//printf("MESSAGE RECEIVED: %s\n", msg_recv.msg);
-		print_message(&msg_recv);
-		mData_inc.push(msg_recv);
-		pthread_t sendThread;
-		pthread_create(&sendThread, NULL, sendMsg, NULL);
+		//if(msg_recv.destination == virtual_id)
+		//{
+
+
 			
+			print_message(&msg_recv);
+			mData_forward.push(msg_recv);
+			pthread_t sendThread;
+			pthread_create(&sendThread, NULL, sendMsg, &mData_forward);//param just has to be not null
+			
+
+		//}
+		//else 
+		/*{
+
+		}	*/
 	}
     	close(sockfd);
 }
@@ -287,11 +383,19 @@ int dj_cost[MAXNUMNODES];
 
 void updateRoutingTbl()
 {
-	//printf("UPDATING ROUTING TBL\n");
+
 	for(int i = 0; i<MAXNUMNODES; i++)
 	{
-		if(dj_prev[i] != -1)
+		if(i == virtual_id){
+			
+			vector<int> routeinfo;
+			routeinfo.push_back(0);
+			routeinfo.push_back(virtual_id);
+			routing_tbl[i] = routeinfo; 
+		} 
+		else if(dj_prev[i] != -1)//UNDO
 		{
+			//printf("I did it\n");
 			vector<int> routeinfo;
 			routeinfo.push_back(dj_cost[i]);
 			stack<int> st;
@@ -315,10 +419,7 @@ void updateRoutingTbl()
 			}
 			routing_tbl[i] = routeinfo;
 		}
-		else if(i == virtual_id)
-		{
-			//do nothing
-		}
+
 	}
 	//printf("DONE UPDATING ROUTING TBL\n");
 }
@@ -384,24 +485,47 @@ void djikstra()
 		}
 	}
 /*printf("DJIKSTRA's COMPLETE!\n");	
-	//dj_prev[source] = 0;
+	//
 	for(int i = 0; i<MAXNUMNODES; i++)
 	{
 		printf("DJ_PRE: %d\n", dj_prev[i]);
 	}*/
+	//dj_prev[source] = 0;
 	updateRoutingTbl();	
 }
 
-void * checkConvergence(void * param)
+/**
+*	Tell the manager that I've converged
+*/
+void * sendConvergenceSignal()
 {
+	char buffer[MAXDATASIZE];
+	if(send(manager_sock, buffer, MAXDATASIZE, 0) == -1)
+		{
+			perror("Error sending convergence message to manager");
+			printf("socket: %d", manager_sock);
+		}
+}
+
+void * checkConvergence(void * param)
+{	
+	sem_wait(&start);
 	while(1)
 	{
 		sleep(5);
+		//printf("yup");
+
 		long curr_time = (long)time(0);
-		if(((curr_time - time_stamp) > 5) && (time_stamp != 0))
+		sem_wait(&sem_timer);
+		bool expired = ((curr_time - time_stamp) > 5) && (time_stamp != 0);
+		sem_post(&sem_timer);
+		if(expired)
 		{
 			//converged
 			converged = 1;
+			//printf("CONVG\n");
+			update_routing_flag = 1;//LOL 
+			
 			if(update_routing_flag)
 			{
 				djikstra();
@@ -416,32 +540,17 @@ void * checkConvergence(void * param)
                 		}*/
                 
 				//printf("Routing Table:\n");
-                print_routing_table();
+                if(routing_tbl != old_routing_tbl)
+                {
+                	print_routing_table();
+                	old_routing_tbl = routing_tbl;                	
+                }
+                sleep(1);
 
+                sendConvergenceSignal();
 				//update_routing_flag = 0;
-				pthread_t recvThread;
-			    	pthread_create(&recvThread, NULL, recvMsg, NULL);
-				sleep(2);
-				while(!mData.empty())
-			    	{
-				    	//mData_inc.source = mData.front().source;
-				    	//mData_inc.destination = mData.front().destination;
-				    	//strcpy(mData_inc.msg, mData.front().msg);
-				    	mData_inc.push(mData.front());
 
-				    	//mData.source = -1;
-				    	//mData.destination = -1;
-				    	//strcpy(mData.msg, "");
-				    	//printf("SENDING MSG FROM %d to %d\n", mData_inc.front().source, mData_inc.front().destination);
-				    	print_message(&mData_inc.front());	
-				    	mData.pop();		
-	
-				    	pthread_t sendThread;
-				    	pthread_create(&sendThread, NULL, sendMsg, NULL);
-				    	//pthread_join(sendThread, NULL);
-				    	//sendMsg(NULL);
-					sleep(2);
-			    	}
+				sleep(2);
 			    	//sidd why????????
 			    	while(converged)
 			    	{
@@ -456,7 +565,9 @@ void * checkConvergence(void * param)
 
 void * sendUDP(void * param)
 {
-	sleep(2);
+
+	sleep(1);
+sem_wait(&sem_send);
 	
 	char buf[MAXDATASIZE];
 	memcpy(buf, &rData_init, sizeof(routing_data));
@@ -509,9 +620,10 @@ void * sendUDP(void * param)
 
     		//printf("talker: sent %d bytes\n", numbytes);
 		close(sockfd);
-		sleep(1);
+			sleep(1);
     	}
 
+sem_post(&sem_send);
 	return NULL;	
 }
 
@@ -596,6 +708,23 @@ void * recvUDP(void * param)
 
 		int update_flag = 0;
 		//update forwarding table
+		int node_id = rData_inc.node_id;
+		for(int y = 0; y < MAXNUMNODES; y++){
+			if(rData_init.topology[node_id][y]==-1){
+				if(rData_inc.topology[node_id][y]!=-1){
+
+					update_flag = 1;
+					rData_init.topology[node_id][y] = rData_inc.topology[node_id][y];					
+					vector<int> hop_cost;
+					hop_cost.push_back(rData_inc.topology[node_id][y]);
+					hop_cost.push_back(y);
+					routing_tbl[y] = hop_cost;
+
+				}
+			}
+		}
+
+		/*
 		for(int i = 0; i<MAXNUMNODES; i++)
 		{
 			for(int j = 0; j<MAXNUMNODES; j++)
@@ -604,6 +733,7 @@ void * recvUDP(void * param)
 				{
 					if(rData_inc.topology[i][j] != -1)
 					{
+
 						update_flag = 1;
 						rData_init.topology[i][j] = rData_inc.topology[i][j];					
 						vector<int> hop_cost;
@@ -613,12 +743,14 @@ void * recvUDP(void * param)
 					}
 				}
 			}
-		}
+		}*/
+		//print_routing_table();
 		if(update_flag)
-		{
+		{	converged = 0;
 			restart_timer();
 			pthread_t sendThread;
 			pthread_create(&sendThread, NULL, sendUDP, NULL);
+			//pthread_join(sendThread,NULL);
 			//pthread_detach(sendThread);
 			update_flag = 0;
 			restart_timer();
@@ -666,8 +798,8 @@ void * communicateWithNodes(void * param)
 			}		
 		}
 	}
-	
 	sleep(2);
+	//print_routing_table();
 	pthread_t recvThread;
 	pthread_create(&recvThread, NULL, recvUDP, NULL);
 	//pthread_detach(recvThread);
@@ -710,6 +842,7 @@ void * communicateWithManager(void * param)
 		
 		break;
 	}
+	manager_sock = sockfd;
 
 	if (p == NULL) {
 		fprintf(stderr, "client: failed to connect\n");
@@ -731,12 +864,12 @@ void * communicateWithManager(void * param)
 				//assign node new id
 				istringstream (buf) >> virtual_id;
 				//printf("VIRTUAL ID = %d\n", virtual_id);
-				
-				pthread_t nodeThread;
+				pthread_t nodeThread;	
 				pthread_create(&nodeThread, NULL, communicateWithNodes, NULL);
 			}
 			else if(msg_flag == 0)
             {
+
 				message_data msg_recv;
 				memcpy(&msg_recv, buf, sizeof(message_data));
 				//printf("MESSAGE SOURCE: %d\n", msg_recv.source);
@@ -751,7 +884,25 @@ void * communicateWithManager(void * param)
 			{	
 				//get neighbor info
 				neighbor_data nData;
+
 				memcpy(&nData, buf, sizeof(neighbor_data));
+
+
+				if(nData.type ==1){//then this was actually a send message signal
+					
+					//printf("SRC \n");
+
+					set_queues(); //load up the messages to send to neighbors
+					pthread_t sendThread;
+					pthread_create(&sendThread, NULL, sendMsg, &mData_inc);
+					
+				} else if(nData.type == 2){
+					//printf("C RESET\n");
+					converged = 0;
+					sem_post(&start);
+					sem_post(&start);
+				}else{
+
 				for(int i = 0; i<MAXNUMNODES; i++)
 				{
 					if(i != virtual_id)
@@ -775,7 +926,7 @@ void * communicateWithManager(void * param)
 								ip_address_nodes[i] = nData.neighbor_ip_address[i];
 								
 							}
-
+							
 							
 						}
 						else if(n_cost < 0)
@@ -798,11 +949,13 @@ void * communicateWithManager(void * param)
 							ip_address_nodes.erase(i);
 
 							printf("no longer linked to node %d\n", i);
+							
 						}
 						
 					}
 					else
 					{
+						
 						neighbor_cost[i] = 0;
 					}
 				}
@@ -810,8 +963,13 @@ void * communicateWithManager(void * param)
 				pthread_t sendThread;
 				pthread_create(&sendThread, NULL, sendUDP, NULL);
 				
+				
 				converged = 0;
+				
 				restart_timer();
+
+				}
+
 			}
 		}
 		else
@@ -828,6 +986,9 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "usage: linkstate managerhostname\n");
                 exit(1);
         }
+	sem_init(&start,0,0);
+	sem_init(&sem_send,0,1);
+	sem_init(&sem_timer,0,1);
 	
 	//update manager's ip address
 	strcpy(manager_ip_address, argv[1]);
@@ -837,8 +998,15 @@ int main(int argc, char *argv[])
 
 	pthread_t convergeThread;
 	pthread_create(&convergeThread, NULL, checkConvergence, NULL);
+
+	pthread_t recvThread;
+	pthread_create(&recvThread, NULL, recvMsg, NULL);
+
+
+	pthread_join(managerThread, NULL);
+
 	
-	pthread_join(convergeThread, NULL);
+
 
 	return 0;
 }
