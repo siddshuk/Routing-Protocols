@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <stdlib.h>
+#include <cstdlib>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -982,10 +982,11 @@ void * communicateWithManager(void * param)
 
 int main(int argc, char *argv[])
 {	
-	if(argc != 2) {
-                fprintf(stderr, "usage: linkstate managerhostname\n");
-                exit(1);
-        }
+	if(argc != 2)
+	{
+        fprintf(stderr, "usage: linkstate managerhostname\n");
+        exit(1);
+    }
 	sem_init(&start,0,0);
 	sem_init(&sem_send,0,1);
 	sem_init(&sem_timer,0,1);
